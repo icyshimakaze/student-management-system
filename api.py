@@ -250,7 +250,7 @@ def course_analytics(course_id: int, ctx=Depends(current_session)):
 def course_students(course_id: int, ctx=Depends(current_session)):
     session, services = ctx
     try:
-        return services.courses.students(course_id)
+        return services.courses.enrolled_students(course_id)
     except Exception as error:
         raise _http_error(error)
 

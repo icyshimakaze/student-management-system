@@ -176,7 +176,7 @@ class CourseAnalyticsDialog(QDialog):
         close=QPushButton("Close"); close.clicked.connect(self.accept); lay=QVBoxLayout(self); lay.addWidget(self.info); lay.addWidget(self.students); lay.addWidget(close); self.load()
     def load(self):
         data=self.services.courses.analytics(self.course_id); self.info.setText(f"<b>{data['course_code']} — {data['course_name']}</b><br>Enrolled: {data['enrollment_count']} · Average: {data['average_grade'] if data['average_grade'] is not None else '—'} · Highest: {data['highest_grade'] if data['highest_grade'] is not None else '—'} · Lowest: {data['lowest_grade'] if data['lowest_grade'] is not None else '—'}")
-        rows=self.services.courses.students(self.course_id); self.students.setRowCount(0)
+        rows=self.services.courses.enrolled_students(self.course_id); self.students.setRowCount(0)
         for r,row in enumerate(rows):
             self.students.insertRow(r); vals=[row["student_name"],row["student_code"],"—" if row["grade_value"] is None else f"{float(row['grade_value']):.2f}",str(row["enrollment_date"])];
             for c,v in enumerate(vals): self.students.setItem(r,c,QTableWidgetItem(v))
@@ -188,7 +188,7 @@ class TeacherCourseStudentsDialog(QDialog):
         self.table=QTableWidget(); self.table.setColumnCount(5); self.table.setHorizontalHeaderLabels(["Student","Student ID","Email","Enrollment","Grade"]); configure_table(self.table,(0,2))
         grade=QPushButton("Enter / update grade"); close=QPushButton("Close"); grade.clicked.connect(self.set_grade); close.clicked.connect(self.accept); row=QHBoxLayout(); row.addWidget(grade); row.addStretch(); row.addWidget(close); lay=QVBoxLayout(self); lay.addWidget(self.table); lay.addLayout(row); self.load()
     def load(self):
-        rows=self.services.courses.students(self.course_id); self.table.setRowCount(0)
+        rows=self.services.courses.enrolled_students(self.course_id); self.table.setRowCount(0)
         for r,row in enumerate(rows):
             self.table.insertRow(r); vals=[row["student_name"],row["student_code"],row["email"],str(row["enrollment_date"]),"—" if row["grade_value"] is None else f"{float(row['grade_value']):.2f}"]
             for c,v in enumerate(vals): self.table.setItem(r,c,QTableWidgetItem(v))

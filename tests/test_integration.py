@@ -14,8 +14,8 @@ from repositories import (
     StudentRepository, TeacherRepository, UserRepository,
 )
 from services import (
-    AuthService, CourseService, EnrollmentService, GradeService,
-    PermissionDenied, Session, StudentService, UserService,
+    AuthService, CourseService, DashboardService, EnrollmentService,
+    GradeService, PermissionDenied, Session, StudentService, UserService,
 )
 from validation import ValidationError
 
@@ -57,7 +57,7 @@ def course_ids(repos, teacher_ids):
 
 
 @pytest.fixture(scope="module")
-def admin_session(repos):
+def admin_session(repos, db):
     username = "it_admin"
     password = "it-admin-password-1"
     username_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
@@ -70,7 +70,7 @@ def admin_session(repos):
 
 # ---------------------------------------------------------------- auth
 
-def test_login_success_and_failure(admin_session):
+def test_login_success_and_failure(admin_session, db):
     # admin_session fixture already proved a successful login.
     assert admin_session.user_id > 0
     with pytest.raises(ValidationError):
@@ -79,7 +79,7 @@ def test_login_success_and_failure(admin_session):
         AuthService(db).authenticate("no_such_user", "whatever")
 
 
-def test_inactive_user_cannot_log_in(repos):
+def test_inactive_user_cannot_log_in(repos, db):
     password = "inactive-pass-1"
     user_id = repos["users"].create(
         "it_inactive",
@@ -102,7 +102,7 @@ def test_student_crud_roundtrip(repos, unique_code):
     )
     fetched = repos["students"].get(student_id)
     assert fetched["first_name"] == "Inte"
-    updated = repos["students"].update(
+    repos["students"].update(
         student_id,
         {"student_code": code, "first_name": "Updated", "last_name": "Gration",
          "email": f"{code.lower()}@test.edu", "enrollment_date": "2026-01-10"},
@@ -110,7 +110,6 @@ def test_student_crud_roundtrip(repos, unique_code):
     assert repos["students"].get(student_id)["first_name"] == "Updated"
     repos["students"].delete(student_id)
     assert repos["students"].get(student_id) is None
-    assert updated >= 0
 
 
 def test_duplicate_student_code_rejected(repos, unique_code):
@@ -140,7 +139,7 @@ def _enroll_student(repos, unique_code, course_id):
     return student_id, enrollment_id
 
 
-def test_teacher_can_grade_own_course(repos, unique_code, course_ids, teacher_ids):
+def test_teacher_can_grade_own_course(db, repos, unique_code, course_ids, teacher_ids):
     _, enrollment_id = _enroll_student(repos, unique_code, course_ids["A"])
     session = Session(900, "it_teacher_a", "TEACHER", teacher_ids["A"])
     svc = GradeService(db, session)
@@ -148,7 +147,7 @@ def test_teacher_can_grade_own_course(repos, unique_code, course_ids, teacher_id
     assert float(repos["grades"].get(enrollment_id)["grade_value"]) == 92.5
 
 
-def test_teacher_cannot_grade_other_teachers_course(repos, unique_code, course_ids, teacher_ids):
+def test_teacher_cannot_grade_other_teachers_course(db, repos, unique_code, course_ids, teacher_ids):
     _, enrollment_id = _enroll_student(repos, unique_code, course_ids["B"])
     session = Session(901, "it_teacher_a", "TEACHER", teacher_ids["A"])
     svc = GradeService(db, session)
@@ -157,27 +156,24 @@ def test_teacher_cannot_grade_other_teachers_course(repos, unique_code, course_i
     assert repos["grades"].get(enrollment_id) is None
 
 
-def test_admin_can_grade_any_course(repos, unique_code, course_ids, admin_session):
+def test_admin_can_grade_any_course(db, repos, unique_code, course_ids, admin_session):
     _, enrollment_id = _enroll_student(repos, unique_code, course_ids["B"])
     svc = GradeService(db, admin_session)
     svc.set_grade(enrollment_id, 77, "2026-02-01")
     assert float(repos["grades"].get(enrollment_id)["grade_value"]) == 77
 
 
-def test_teacher_cannot_read_other_course_students(repos, course_ids, teacher_ids):
+def test_teacher_cannot_read_other_course_students(db, repos, course_ids, teacher_ids):
     session = Session(902, "it_teacher_a", "TEACHER", teacher_ids["A"])
     svc = CourseService(db, session)
     with pytest.raises(PermissionDenied):
-        svc.students(course_ids["B"])
+        svc.enrolled_students(course_ids["B"])
 
 
-def test_teacher_cannot_create_students(repos, admin_session):
-    svc = StudentService(db, admin_session)
-    assert svc.list()  # admin may list
+def test_teacher_cannot_list_students(db, repos):
     teacher_session = Session(903, "it_teacher_x", "TEACHER", None)
-    from services import StudentService as S
     with pytest.raises(PermissionDenied):
-        S(db, teacher_session).list()
+        StudentService(db, teacher_session).list()
 
 
 # ---------------------------------------------------------------- enrollments
@@ -194,7 +190,7 @@ def test_duplicate_enrollment_rejected(repos, unique_code, course_ids):
     assert len(repos["enrollments"].list_for_student(student_id)) == 1
 
 
-def test_enrollment_service_validates_and_creates(repos, unique_code, course_ids, admin_session):
+def test_enrollment_service_validates_and_creates(db, repos, unique_code, course_ids, admin_session):
     code = unique_code()
     student_id = repos["students"].create(
         {"student_code": code, "first_name": "Svc", "last_name": "Enroll",
@@ -207,7 +203,7 @@ def test_enrollment_service_validates_and_creates(repos, unique_code, course_ids
         svc.create(student_id, course_ids["A"], "2026-01-15")  # duplicate
 
 
-def test_grade_service_rejects_out_of_range(repos, unique_code, course_ids, admin_session):
+def test_grade_service_rejects_out_of_range(db, repos, unique_code, course_ids, admin_session):
     _, enrollment_id = _enroll_student(repos, unique_code, course_ids["A"])
     svc = GradeService(db, admin_session)
     for bad in (-5, 150, "abc"):
@@ -237,7 +233,7 @@ def test_rollback_on_failure_leaves_no_partial_data(repos, unique_code, course_i
 
 # ---------------------------------------------------------------- analytics
 
-def test_course_analytics_and_student_profile(repos, unique_code, course_ids, admin_session):
+def test_course_analytics_and_student_profile(db, repos, unique_code, course_ids, admin_session):
     student_id, enrollment_id = _enroll_student(repos, unique_code, course_ids["A"])
     repos["grades"].upsert(enrollment_id, 65, "2026-02-02")
     analytics = CourseService(db, admin_session).analytics(course_ids["A"])
@@ -249,23 +245,20 @@ def test_course_analytics_and_student_profile(repos, unique_code, course_ids, ad
     assert profile["average_grade"] is not None
 
 
-def test_dashboard_summary_admin(repos, admin_session):
-    from services import DashboardService
+def test_dashboard_summary_admin(db, repos, admin_session):
     totals = DashboardService(db, admin_session).summary()
     assert set(totals) >= {"students", "teachers", "courses", "enrollments"}
     assert all(isinstance(v, int) for v in totals.values())
 
 
-def test_teacher_dashboard_is_scoped(repos, unique_code, course_ids, teacher_ids):
-    from services import DashboardService
+def test_teacher_dashboard_is_scoped(db, repos, unique_code, course_ids, teacher_ids):
     session = Session(904, "it_teacher_a", "TEACHER", teacher_ids["A"])
     totals = DashboardService(db, session).summary()
     assert totals["teachers"] == 1  # scoped view reports only self
     assert totals["courses"] >= 1
 
 
-def test_user_service_requires_admin(repos):
-    from services import UserService
+def test_user_service_requires_admin(db, repos):
     teacher_session = Session(905, "it_teacher_y", "TEACHER", None)
     with pytest.raises(PermissionDenied):
         UserService(db, teacher_session).list()

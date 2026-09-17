@@ -248,7 +248,7 @@ class CourseService(BaseService):
         analytics["course_code"] = row["course_code"]
         return analytics
 
-    def students(self, course_id: int) -> list[dict[str, Any]]:
+    def enrolled_students(self, course_id: int) -> list[dict[str, Any]]:
         self.get(course_id)
         return self.ensure_error("course students", self.courses.students, course_id)
 

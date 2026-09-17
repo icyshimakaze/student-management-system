@@ -13,6 +13,10 @@ from pathlib import Path
 import mysql.connector
 import pytest
 
+from dotenv import load_dotenv
+
+load_dotenv()  # pick up TEST_DB_* from .env, like the app does for DB_*
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 TEST_DB = {
@@ -103,9 +107,12 @@ def test_db():
     yield TEST_DB["database"]
 
 
-@pytest.fixture()
+@pytest.fixture(scope="session")
 def db(test_db):
-    """A connection wrapper matching the app's DatabaseConnection interface."""
+    """A connection wrapper matching the app's DatabaseConnection interface.
+
+    Session-scoped because module fixtures depend on it; the object itself
+    just opens a fresh connection on every connect() call."""
     class _DB:
         def connect(self):
             return _connect(test_db)
@@ -113,9 +120,10 @@ def db(test_db):
     return _DB()
 
 
-@pytest.fixture()
+@pytest.fixture(scope="session")
 def unique_code():
-    """Unique student codes so parallel/repeat runs never hit the UNIQUE constraint."""
+    """Unique student codes: session-wide counter so codes never repeat
+    even though the test database persists across tests in one session."""
     counter = {"n": 0}
 
     def _next(prefix: str = "IT-STU") -> str:
