@@ -1,0 +1,367 @@
+"""Small FastAPI layer exposing the existing service layer over HTTP.
+
+The API is intentionally thin: it reuses AuthService + ServiceBundle so the
+same validation and authorization rules protect both the PyQt6 UI and HTTP
+clients. Sessions are stateless JWTs; passwords never appear in logs.
+
+Run locally (after `pip install -r requirements-api.txt`):
+
+    uvicorn api:app --reload
+
+Interactive docs: http://127.0.0.1:8000/docs
+"""
+from __future__ import annotations
+
+import os
+from datetime import datetime, timedelta, timezone
+from typing import Any
+
+import mysql.connector
+from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jose import JWTError, jwt
+
+from db import DatabaseConnection
+from services import (
+    AuthService, NotFoundError, PermissionDenied, ServiceBundle,
+    Session as DomainSession, ValidationError,
+)
+
+SECRET_KEY = os.getenv("API_JWT_SECRET", "")
+ALGORITHM = "HS256"
+TOKEN_TTL_MINUTES = int(os.getenv("API_TOKEN_TTL_MINUTES", "120"))
+if not SECRET_KEY:
+    raise RuntimeError(
+        "API_JWT_SECRET is not set. Provide a long random value in .env before starting the API."
+    )
+
+app = FastAPI(
+    title="Student Management System API",
+    description="Thin HTTP layer over the same services that back the PyQt6 desktop UI.",
+    version="1.0.0",
+)
+bearer = HTTPBearer(auto_error=False)
+
+# Model of record: a domain Session plus the request-scoped services.
+def _domain_session(payload: dict) -> DomainSession:
+    return DomainSession(
+        user_id=int(payload["sub"]),
+        username=payload["username"],
+        role=payload["role"],
+        teacher_id=payload.get("teacher_id"),
+    )
+
+
+def current_session(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+) -> tuple[DomainSession, ServiceBundle]:
+    if credentials is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing bearer token")
+    try:
+        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired token")
+    session = _domain_session(payload)
+    return session, ServiceBundle(DatabaseConnection(), session)
+
+
+def _http_error(error: Exception) -> HTTPException:
+    if isinstance(error, ValidationError):
+        return HTTPException(422, str(error))
+    if isinstance(error, PermissionDenied):
+        return HTTPException(status.HTTP_403_FORBIDDEN, str(error))
+    if isinstance(error, NotFoundError):
+        return HTTPException(status.HTTP_404_NOT_FOUND, str(error))
+    if isinstance(error, mysql.connector.Error):
+        return HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Database unavailable")
+    return HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Internal server error")
+
+
+@app.post("/auth/login")
+def login(body: dict[str, str]) -> dict[str, Any]:
+    try:
+        session = AuthService(DatabaseConnection()).authenticate(
+            body.get("username", ""), body.get("password", "")
+        )
+    except ValidationError as error:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(error))
+    except mysql.connector.Error:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Database unavailable")
+    token = jwt.encode(
+        {
+            "sub": str(session.user_id),
+            "username": session.username,
+            "role": session.role,
+            "teacher_id": session.teacher_id,
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=TOKEN_TTL_MINUTES),
+        },
+        SECRET_KEY,
+        algorithm=ALGORITHM,
+    )
+    return {"access_token": token, "token_type": "bearer", "role": session.role}
+
+
+# ------------------------------------------------------------------ students
+
+@app.get("/students")
+def list_students(search: str = "", ctx=Depends(current_session)):
+    session, services = ctx
+    try:
+        return services.students.list(search)
+    except Exception as error:
+        raise _http_error(error)
+
+
+@app.get("/students/{student_id}")
+def get_student(student_id: int, ctx=Depends(current_session)):
+    session, services = ctx
+    try:
+        return services.students.get(student_id)
+    except Exception as error:
+        raise _http_error(error)
+
+
+@app.post("/students", status_code=201)
+def create_student(body: dict[str, Any], ctx=Depends(current_session)):
+    session, services = ctx
+    try:
+        student_id = services.students.create(body)
+        return {"student_id": student_id}
+    except Exception as error:
+        raise _http_error(error)
+
+
+@app.put("/students/{student_id}")
+def update_student(student_id: int, body: dict[str, Any], ctx=Depends(current_session)):
+    session, services = ctx
+    try:
+        services.students.update(student_id, body)
+        return {"updated": True}
+    except Exception as error:
+        raise _http_error(error)
+
+
+@app.delete("/students/{student_id}", status_code=204)
+def delete_student(student_id: int, ctx=Depends(current_session)):
+    session, services = ctx
+    try:
+        services.students.delete(student_id)
+    except Exception as error:
+        raise _http_error(error)
+
+
+@app.get("/students/{student_id}/profile")
+def student_profile(student_id: int, ctx=Depends(current_session)):
+    session, services = ctx
+    try:
+        return services.students.profile(student_id)
+    except Exception as error:
+        raise _http_error(error)
+
+
+# ------------------------------------------------------------------ teachers
+
+@app.get("/teachers")
+def list_teachers(search: str = "", ctx=Depends(current_session)):
+    session, services = ctx
+    try:
+        return services.teachers.list(search)
+    except Exception as error:
+        raise _http_error(error)
+
+
+@app.post("/teachers", status_code=201)
+def create_teacher(body: dict[str, Any], ctx=Depends(current_session)):
+    session, services = ctx
+    try:
+        return {"teacher_id": services.teachers.create(body)}
+    except Exception as error:
+        raise _http_error(error)
+
+
+@app.put("/teachers/{teacher_id}")
+def update_teacher(teacher_id: int, body: dict[str, Any], ctx=Depends(current_session)):
+    session, services = ctx
+    try:
+        services.teachers.update(teacher_id, body)
+        return {"updated": True}
+    except Exception as error:
+        raise _http_error(error)
+
+
+@app.delete("/teachers/{teacher_id}", status_code=204)
+def delete_teacher(teacher_id: int, ctx=Depends(current_session)):
+    session, services = ctx
+    try:
+        services.teachers.delete(teacher_id)
+    except Exception as error:
+        raise _http_error(error)
+
+
+# ------------------------------------------------------------------- courses
+
+@app.get("/courses")
+def list_courses(search: str = "", ctx=Depends(current_session)):
+    session, services = ctx
+    try:
+        return services.courses.list(search)
+    except Exception as error:
+        raise _http_error(error)
+
+
+@app.post("/courses", status_code=201)
+def create_course(body: dict[str, Any], ctx=Depends(current_session)):
+    session, services = ctx
+    try:
+        return {"course_id": services.courses.create(body)}
+    except Exception as error:
+        raise _http_error(error)
+
+
+@app.put("/courses/{course_id}")
+def update_course(course_id: int, body: dict[str, Any], ctx=Depends(current_session)):
+    session, services = ctx
+    try:
+        services.courses.update(course_id, body)
+        return {"updated": True}
+    except Exception as error:
+        raise _http_error(error)
+
+
+@app.delete("/courses/{course_id}", status_code=204)
+def delete_course(course_id: int, ctx=Depends(current_session)):
+    session, services = ctx
+    try:
+        services.courses.delete(course_id)
+    except Exception as error:
+        raise _http_error(error)
+
+
+@app.get("/courses/{course_id}/analytics")
+def course_analytics(course_id: int, ctx=Depends(current_session)):
+    session, services = ctx
+    try:
+        return services.courses.analytics(course_id)
+    except Exception as error:
+        raise _http_error(error)
+
+
+@app.get("/courses/{course_id}/students")
+def course_students(course_id: int, ctx=Depends(current_session)):
+    session, services = ctx
+    try:
+        return services.courses.students(course_id)
+    except Exception as error:
+        raise _http_error(error)
+
+
+# ---------------------------------------------------------------- enrollments
+
+@app.get("/students/{student_id}/enrollments")
+def student_enrollments(student_id: int, ctx=Depends(current_session)):
+    session, services = ctx
+    try:
+        return services.enrollments.list_for_student(student_id)
+    except Exception as error:
+        raise _http_error(error)
+
+
+@app.post("/students/{student_id}/enrollments", status_code=201)
+def enroll_student(student_id: int, body: dict[str, Any], ctx=Depends(current_session)):
+    session, services = ctx
+    try:
+        enrollment_id = services.enrollments.create(
+            student_id, int(body["course_id"]), body.get("enrollment_date", "")
+        )
+        return {"enrollment_id": enrollment_id}
+    except Exception as error:
+        raise _http_error(error)
+
+
+@app.delete("/enrollments/{enrollment_id}", status_code=204)
+def delete_enrollment(enrollment_id: int, ctx=Depends(current_session)):
+    session, services = ctx
+    try:
+        services.enrollments.delete(enrollment_id)
+    except Exception as error:
+        raise _http_error(error)
+
+
+# --------------------------------------------------------------------- grades
+
+@app.put("/enrollments/{enrollment_id}/grade")
+def set_grade(enrollment_id: int, body: dict[str, Any], ctx=Depends(current_session)):
+    session, services = ctx
+    try:
+        grade_id = services.grades.set_grade(
+            enrollment_id, body.get("grade_value"), body.get("graded_date", "")
+        )
+        return {"grade_id": grade_id}
+    except Exception as error:
+        raise _http_error(error)
+
+
+# ------------------------------------------------------------------ dashboard
+
+@app.get("/dashboard/summary")
+def dashboard_summary(ctx=Depends(current_session)):
+    session, services = ctx
+    try:
+        return services.dashboard.summary()
+    except Exception as error:
+        raise _http_error(error)
+
+
+@app.get("/dashboard/grade-distribution")
+def grade_distribution(ctx=Depends(current_session)):
+    session, services = ctx
+    try:
+        return services.dashboard.grade_distribution()
+    except Exception as error:
+        raise _http_error(error)
+
+
+@app.get("/dashboard/recent-enrollments")
+def recent_enrollments(ctx=Depends(current_session)):
+    session, services = ctx
+    try:
+        return services.dashboard.recent_enrollments()
+    except Exception as error:
+        raise _http_error(error)
+
+
+# ---------------------------------------------------------------------- users
+
+@app.get("/users")
+def list_users(ctx=Depends(current_session)):
+    session, services = ctx
+    try:
+        return services.users.list()
+    except Exception as error:
+        raise _http_error(error)
+
+
+@app.post("/users", status_code=201)
+def create_user(body: dict[str, Any], ctx=Depends(current_session)):
+    session, services = ctx
+    try:
+        return {
+            "user_id": services.users.create(
+                body.get("username", ""),
+                body.get("password", ""),
+                body.get("role", ""),
+                body.get("teacher_id"),
+            )
+        }
+    except Exception as error:
+        raise _http_error(error)
+
+
+@app.put("/users/{user_id}/active")
+def set_user_active(user_id: int, body: dict[str, bool], ctx=Depends(current_session)):
+    session, services = ctx
+    try:
+        services.users.set_active(user_id, body["is_active"])
+        return {"updated": True}
+    except Exception as error:
+        raise _http_error(error)

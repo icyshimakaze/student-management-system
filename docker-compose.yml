@@ -1,0 +1,23 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: sms-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: sms_dev_password
+      MYSQL_DATABASE: student_management
+    ports:
+      - "3307:3306"
+    volumes:
+      - sms_mysql_data:/var/lib/mysql
+      # MySQL runs any *.sql in this folder on first startup only.
+      # The schema file's CREATE DATABASE/USE lines are stripped because
+      # MYSQL_DATABASE already selects the right database.
+      - ./docker-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-psms_dev_password"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  sms_mysql_data:
