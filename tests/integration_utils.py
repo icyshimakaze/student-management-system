@@ -52,6 +52,20 @@ def mysql_available() -> bool:
     return True
 
 
+def _split_sql_statements(sql: str) -> list[str]:
+    """Split a .sql script into statements for cursor.execute().
+
+    schema.sql and seed_data.sql only contain full-line comments and no
+    semicolons inside string literals, so dropping comment/blank lines and
+    splitting on ';' is sufficient. mysql-connector-python does not accept
+    multi-statement scripts in cursor.execute()."""
+    lines = [
+        line for line in sql.splitlines()
+        if line.strip() and not line.strip().startswith("--")
+    ]
+    return [s.strip() for s in "\n".join(lines).split(";") if s.strip()]
+
+
 def load_schema(database: str) -> None:
     """Apply schema.sql + seed_data.sql to the given database."""
     schema_sql = (PROJECT_ROOT / "database" / "schema.sql").read_text(encoding="utf-8")
@@ -72,12 +86,8 @@ def load_schema(database: str) -> None:
     connection = _connect(database)
     try:
         cursor = connection.cursor()
-        # multi=True returns a lazy generator; it must be consumed or the
-        # statements never run.
-        for _ in cursor.execute(schema_sql, multi=True):
-            pass
-        for _ in cursor.execute(seed_sql, multi=True):
-            pass
+        for statement in _split_sql_statements(schema_sql) + _split_sql_statements(seed_sql):
+            cursor.execute(statement)
         cursor.close()
         connection.commit()
     finally:
