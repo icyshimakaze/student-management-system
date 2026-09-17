@@ -9,6 +9,11 @@ from getpass import getpass
 
 import bcrypt
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from db import DatabaseConnection
 from repositories import TeacherRepository, UserRepository
 from validation import ValidationError, identifier, required
