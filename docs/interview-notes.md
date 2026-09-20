@@ -13,7 +13,7 @@ is not here, the project does not implement it — don't claim it does.
 
 5. **How does authentication work?** `AuthService.authenticate()` looks up the user, rejects inactive accounts, verifies bcrypt hashes, and returns a domain `Session`. Generic failure message — no username enumeration.
 
-6. **How does JWT work here?** After login the API signs `{sub, username, role, teacher_id, exp}` (HS256, 120-min TTL). Each request's Bearer token is decoded and rebuilt into the domain `Session`; expired/garbage tokens get 401. The token is stateless — no server-side session store.
+6. **How does JWT work here?** After login the API signs `{sub, username, role, teacher_id, exp}` (HS256, 120-min TTL, configurable via `API_TOKEN_TTL_MINUTES`). Each request's Bearer token is decoded and rebuilt into the domain `Session` — and the account is re-loaded from the database on every request, so a deactivated user's token stops working immediately. Expired/garbage tokens get 401.
 
 7. **How are passwords stored?** `bcrypt.hashpw` with generated salts; only the hash is stored (`users.password_hash`). Verification via `bcrypt.checkpw`. Passwords and hashes are never logged.
 
@@ -41,6 +41,6 @@ is not here, the project does not implement it — don't claim it does.
 
 19. **How could this be deployed?** Frontend static (Vercel/Netlify) with `VITE_API_URL`; API on Render/Railway with `CORS_ORIGINS` set; managed MySQL; `/health` as probe. Documented in `docs/deployment.md`.
 
-20. **Known limitations?** No pagination or rate limiting; single-node; grade history not modeled (current grade only); integration tests need a live MySQL (skip otherwise). Stating these is a strength, not a weakness.
+20. **Known limitations?** No rate limiting on the API; single-node; grade history not modeled (current grade only); integration tests need a live MySQL (skip otherwise). Stating these is a strength, not a weakness.
 
-**Best war story:** integration tests caught a real bug unit tests missed — `CourseService.students()` was shadowed by a `self.students` repository attribute, silently breaking course rosters. Fakes couldn't catch it because they replace the attributes involved; only exercising the real class hierarchy did. That's why both test layers exist here.
+**Best war story:** integration tests caught a real bug unit tests missed — a pagination helper (`_page_args`) was accidentally defined only on `StudentService` instead of the shared `BaseService`, so the Teachers and Courses API routes crashed with 500s while Students worked fine. Unit tests with fake service bundles never touched the real inheritance chain; only exercising the actual classes against a live app did. That's why both test layers exist here — and why the helpers now live on `BaseService` where every service inherits them.

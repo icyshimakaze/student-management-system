@@ -160,13 +160,6 @@ The web app reads the API URL from `VITE_API_URL` (build time); unset, it defaul
 python -m pytest -q          # unit + API + integration (integration skips without MySQL)
 python -m compileall -q .    # syntax check
 python -m ruff check .       # lint
-cd sms-web && npm run build && npm run lint   # frontend build + lint
-```
-
-```powershell
-python -m pytest -q          # unit + API + integration (integration skips without MySQL)
-python -m compileall -q .    # syntax check
-python -m ruff check .       # lint
 cd sms-web && npm test && npm run build && npm run lint   # frontend tests, build, lint
 ```
 

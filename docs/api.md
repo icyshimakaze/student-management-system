@@ -6,7 +6,7 @@ Interactive OpenAPI docs: run the API and open `http://127.0.0.1:8000/docs`.
 
 - All routes except `/health` and `/auth/login` require `Authorization: Bearer <token>`.
 - Errors: `401` missing/invalid token · `403` role or ownership denied · `404` missing record · `422` validation failure · `503` database unavailable. Details come in `{"detail": "..."}`.
-- Token validation re-loads the user row on every request: a deactivated account gets `401 Account is deactivated` even with a still-valid token.
+- Token validation re-loads the user row on every request: a deactivated account is rejected with `403 Account is deactivated` even with a still-valid token.
 - List endpoints accept `page` (≥1) and `page_size` (1–100) and return a `{items, page, page_size, total, total_pages}` envelope. Request bodies are typed Pydantic models (see `/docs`).
 - Teachers receive 403 on any admin-only route or course they do not teach; this is enforced in services, so it holds for every client.
 
