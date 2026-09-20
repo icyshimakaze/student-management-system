@@ -1,5 +1,7 @@
 # Student Management System
 
+**[🔴 Live Demo](https://student-management-system-taupe-theta.vercel.app)** — web app (admin / admin123)
+
 A student administration platform built three ways over one shared business-logic core: a **PyQt6 desktop application**, a **React web application**, and a **FastAPI REST API** — all backed by **MySQL**. It manages students, teachers, courses, enrollments, grades and authenticated users through a layered architecture (UI → services → repositories → database) that keeps authorization and validation out of the UI and in one enforceable place.
 
 ## Features
@@ -189,7 +191,7 @@ Full instructions, troubleshooting and the one-step script are in [BUILD_WINDOWS
 
 ## Deployment
 
-Realistic options are documented in [docs/deployment.md](docs/deployment.md) — frontend on a static host (Vercel/Netlify) with `VITE_API_URL` set at build time, API on a Python host (Render/Railway) with `CORS_ORIGINS` extended to the frontend origin, database managed or self-hosted. Nothing is claimed deployed here — the instructions are the deliverable.
+ the web app is deployed (Vercel frontend + Render API + hosted MySQL); the desktop app is distributed via installer/CI artifact. Note the free-tier realities honestly: Render's free tier sleeps, so the first request may take ~30–60s to wake.
 
 ## Security
 
