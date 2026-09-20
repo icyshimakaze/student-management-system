@@ -57,11 +57,26 @@ function fmtDetails(details) {
   return { text: String(parsed) }
 }
 
+// Flatten one detail entry for display: a nested object becomes one readable
+// row per field (previous: {last_name: Bridge} → "previous last name: Bridge").
+function flattenPair(key, value) {
+  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+    return Object.entries(value).map(([innerKey, innerValue]) => [
+      `${key} ${String(innerKey).replaceAll('_', ' ')}`.trim(),
+      typeof innerValue === 'object' ? JSON.stringify(innerValue) : String(innerValue),
+    ])
+  }
+  return [[String(key).replaceAll('_', ' '), typeof value === 'object' ? JSON.stringify(value) : String(value)]]
+}
+
 function DetailModal({ row, onClose }) {
   const details = fmtDetails(row.details)
   const pairs = details?.pairs || []
   const reasonPair = pairs.find(([key]) => key === 'reason')
   const failed = row.status && row.status !== 'SUCCESS'
+  const flatRows = pairs
+    .filter(([key]) => !(failed && key === 'reason'))
+    .flatMap(([key, value]) => flattenPair(key, value))
   return (
     <Modal title={`Audit event — ${actionLabel(row.action)}`} onClose={onClose}>
       <dl className="detail-grid">
@@ -82,7 +97,7 @@ function DetailModal({ row, onClose }) {
           </>
         ) : null}
       </dl>
-      {details && (details.text || pairs.some(([key]) => !(failed && key === 'reason'))) && (
+      {details && (details.text || flatRows.length > 0) && (
         <>
           <h3 className="detail-heading">Change details</h3>
           {details.text ? (
@@ -90,14 +105,12 @@ function DetailModal({ row, onClose }) {
           ) : (
             <table className="detail-table">
               <tbody>
-                {pairs
-                  .filter(([key]) => !(failed && key === 'reason'))
-                  .map(([key, value]) => (
-                    <tr key={key}>
-                      <th>{String(key).replaceAll('_', ' ')}</th>
-                      <td>{typeof value === 'object' ? JSON.stringify(value) : String(value)}</td>
-                    </tr>
-                  ))}
+                {flatRows.map(([key, value]) => (
+                  <tr key={key}>
+                    <th>{key}</th>
+                    <td>{value}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           )}

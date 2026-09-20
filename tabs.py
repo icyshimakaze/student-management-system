@@ -393,11 +393,19 @@ class AuditDetailDialog(QDialog):
             import json as _json
             raw = row.get("details")
             parsed = _json.loads(raw) if isinstance(raw, str) else (raw or {})
+            lines: list[str] = []
             if isinstance(parsed, dict):
-                lines = [f"{k.replace('_', ' ')}: {v}" for k, v in parsed.items() if not (failed and k == "reason")]
-                details_text.setText("\n".join(lines) or "No extra details.")
+                for key, value in parsed.items():
+                    if failed and key == "reason":
+                        continue  # already shown in red above
+                    if isinstance(value, dict):  # nested dicts (e.g. previous values) become one line per field
+                        for inner_key, inner_value in value.items():
+                            lines.append(f"{key} {inner_key.replace('_', ' ')}: {inner_value}")
+                    else:
+                        lines.append(f"{key.replace('_', ' ')}: {value}")
             else:
-                details_text.setText(str(parsed))
+                lines.append(str(parsed))
+            details_text.setText("\n".join(lines) or "No extra details.")
         except Exception:
             details_text.setText("No extra details.")
         details_text.setWordWrap(True)

@@ -385,7 +385,7 @@ class CourseService(BaseService):
         teacher_id = None if self.session.is_admin else self.require_teacher()
         page, page_size, offset = self._page_args(page, page_size)
         items = self.ensure_error("course listing", self.courses.list, teacher_id, search, page_size, offset)
-        total = self.ensure_error("course count", self.courses.count, search)
+        total = self.ensure_error("course count", self.courses.count, search, teacher_id)
         return self._page_result(items, page, page_size, total)
 
     def choices_for_student(self, student_id: int) -> list[tuple[int, str]]:

@@ -239,16 +239,20 @@ class CourseRepository(BaseRepository):
             params += [limit, offset]
         return self.fetch_all(sql, tuple(params))
 
-    def count(self, search: str = "") -> int:
+    def count(self, search: str = "", teacher_id: int | None = None) -> int:
+        """Count courses, optionally scoped to one teacher (used for the
+        teacher dashboard pagination metadata)."""
         term = search.strip()
         p = f"%{term}%"
-        row = self.fetch_one(
-            """SELECT COUNT(*) AS total FROM courses c
+        sql = """SELECT COUNT(*) AS total FROM courses c
                LEFT JOIN teachers t ON t.teacher_id=c.teacher_id
                WHERE (%s='' OR c.course_code LIKE %s OR c.course_name LIKE %s OR
-                      COALESCE(CONCAT(t.first_name,' ',t.last_name),'') LIKE %s)""",
-            (term, p, p, p),
-        )
+                      COALESCE(CONCAT(t.first_name,' ',t.last_name),'') LIKE %s)"""
+        params: list[Any] = [term, p, p, p]
+        if teacher_id is not None:
+            sql += " AND c.teacher_id=%s"
+            params.append(teacher_id)
+        row = self.fetch_one(sql, tuple(params))
         return int(row["total"]) if row else 0
 
     def get(self, course_id: int) -> dict[str, Any] | None:
