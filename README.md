@@ -1,3 +1,7 @@
+![CI](https://github.com/icyshimakaze/student-management-system/actions/workflows/ci.yml/badge.svg)
+![Windows EXE](https://github.com/icyshimakaze/student-management-system/actions/workflows/windows-build.yml/badge.svg)
+![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
+
 # Student Management System
 
 **[🔴 Live Demo](https://student-management-system-taupe-theta.vercel.app)** — web app (admin / admin123)
