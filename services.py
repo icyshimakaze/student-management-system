@@ -297,10 +297,10 @@ class StudentService(BaseService):
     def delete(self, student_id: int) -> int:
         self.require_admin()
         existing = self.get(student_id)
-        removed = self.audited("student.delete", "student", "student deletion", self.students.delete, student_id,
-                               entity_id=student_id,
-                               details={"student_code": existing["student_code"],
-                                        "name": f"{existing['first_name']} {existing['last_name']}"})
+        self.audited("student.delete", "student", "student deletion", self.students.delete, student_id,
+                     entity_id=student_id,
+                     details={"student_code": existing["student_code"],
+                              "name": f"{existing['first_name']} {existing['last_name']}"})
         return student_id
 
     def profile(self, student_id: int) -> dict[str, Any]:
