@@ -172,7 +172,7 @@ python -m ruff check .       # lint
 cd sms-web && npm test && npm run build && npm run lint   # frontend tests, build, lint
 ```
 
-Frontend tests (Vitest + Testing Library) cover login behavior, route protection, pagination rendering, search wiring and API error handling. Integration tests use the dedicated `student_management_test` database (configured via `TEST_DB_*` variables) and never touch a developer's real data. CI runs everything: unit tests, lint, frontend tests + build, and the integration suite against a MySQL 8.0 service container.
+Frontend tests (Vitest + Testing Library) cover login behavior, route protection, pagination rendering, search wiring and API error handling. Integration tests use the dedicated `student_management_test` database (configured via `TEST_DB_*` variables) and never touch a developer's real data. CI runs everything: unit tests, lint, frontend tests + lint + build, and the integration suite against a MySQL 8.0 service container.
 
 ## Building the Windows EXE
 
