@@ -531,6 +531,7 @@ def list_audit_logs(
     action: str = "",
     entity_type: str = "",
     username: str = "",
+    status: str = "",
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     ctx=Depends(current_session),
@@ -539,7 +540,7 @@ def list_audit_logs(
     session, services = ctx
     try:
         return services.audit_logs.list(
-            action=action, entity_type=entity_type, username=username,
+            action=action, entity_type=entity_type, username=username, status=status,
             page=page, page_size=page_size,
         )
     except Exception as error:

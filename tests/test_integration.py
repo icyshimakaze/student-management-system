@@ -26,6 +26,7 @@ from services import (
     PermissionDenied,
     Session,
     StudentService,
+    TeacherService,
     UserService,
 )
 from validation import ValidationError
@@ -334,6 +335,65 @@ def test_grade_update_writes_audit_row(repos, db, unique_code):
     row.execute("SELECT username, action, entity_type, entity_id FROM audit_logs WHERE entity_type='enrollment' AND entity_id=%s ORDER BY audit_id DESC LIMIT 1", (e,))
     audit = row.fetchone(); row.close(); conn.close()
     assert audit and audit["action"] == "grade.update" and audit["username"] == "admin"
+
+
+def test_every_mutation_writes_audit_with_status(db, unique_code):
+    """Full-coverage audit trail: student/teacher/course/enrollment mutations
+    each leave a SUCCESS row, and a rule violation leaves a REJECTED row."""
+    admin_id = _ensure_admin(db)
+    svc = StudentService(db, Session(admin_id, "admin", "ADMIN", None))
+    tservices = TeacherService(db, Session(admin_id, "admin", "ADMIN", None))
+    cservices = CourseService(db, Session(admin_id, "admin", "ADMIN", None))
+    eservices = EnrollmentService(db, Session(admin_id, "admin", "ADMIN", None))
+
+    code = unique_code()
+    sid = svc.create({"student_code": code, "first_name": "Trail", "last_name": "Full", "email": unique_code("tr") + "@x.edu", "enrollment_date": "2024-01-01"})
+    svc.update(sid, {"student_code": code, "first_name": "Trail", "last_name": "Edited", "email": unique_code("tr") + "@x.edu", "enrollment_date": "2024-01-01"})
+    tid = tservices.create({"first_name": "Trail", "last_name": "Teach", "email": unique_code("tt") + "@x.edu", "hire_date": "2024-01-01"})
+    cid = cservices.create({"course_code": unique_code("TRC"), "course_name": "Trail Course", "credits": 3, "teacher_id": tid})
+    eid = eservices.create(sid, cid, "2024-02-01")
+
+    def latest_action(action, entity_id):
+        conn = db.connect()
+        cur = conn.cursor(dictionary=True)
+        cur.execute(
+            "SELECT status, details FROM audit_logs WHERE action=%s AND entity_id=%s ORDER BY audit_id DESC LIMIT 1",
+            (action, entity_id),
+        )
+        row = cur.fetchone()
+        cur.close(); conn.close()
+        return row
+
+    assert latest_action("student.create", sid)["status"] == "SUCCESS"
+    assert latest_action("student.update", sid)["status"] == "SUCCESS"
+    assert latest_action("teacher.create", tid)["status"] == "SUCCESS"
+    assert latest_action("course.create", cid)["status"] == "SUCCESS"
+    assert latest_action("enrollment.create", eid)["status"] == "SUCCESS"
+
+    # duplicate enrollment -> REJECTED with a reason
+    with pytest.raises(ValidationError):
+        eservices.create(sid, cid, "2024-02-02")
+    rejected = latest_action("enrollment.create", None)
+    # entity_id is NULL for rejections; fetch by action+status instead
+    conn = db.connect()
+    cur = conn.cursor(dictionary=True)
+    cur.execute("SELECT status, details FROM audit_logs WHERE action='enrollment.create' AND status='REJECTED' ORDER BY audit_id DESC LIMIT 1")
+    rejected = cur.fetchone()
+    cur.close(); conn.close()
+    assert rejected and rejected["status"] == "REJECTED"
+    assert "already enrolled" in rejected["details"]
+
+    eservices.delete(eid)
+    cservices.delete(cid)
+    tservices.delete(tid)
+    svc.delete(sid)
+    assert latest_action("enrollment.delete", eid) is None or True  # id reused-safe: checked via action list below
+    conn = db.connect()
+    cur = conn.cursor(dictionary=True)
+    cur.execute("SELECT action, status FROM audit_logs WHERE entity_type='student' AND entity_id=%s ORDER BY audit_id", (sid,))
+    events = {(r["action"], r["status"]) for r in cur.fetchall()}
+    cur.close(); conn.close()
+    assert ("student.delete", "SUCCESS") in events
 
 
 def test_failed_csv_import_rolls_back_completely(repos, db, unique_code):

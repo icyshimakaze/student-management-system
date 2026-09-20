@@ -45,9 +45,27 @@ class BaseRepository:
             connection.close()
 
     def execute(self, sql: str, params: tuple = ()) -> int:
+        """Execute one statement. Returns the new row's id for INSERTs and the
+        affected-row count for UPDATE/DELETE (lastrowid is 0 there)."""
         with self.transaction() as (_, cursor):
             cursor.execute(sql, params)
-            return cursor.lastrowid
+            return cursor.lastrowid if cursor.lastrowid else cursor.rowcount
+
+    def run_in_transaction(self, callback) -> int:
+        """Run callback(connection, cursor) inside one transaction. Lets the
+        service write a change and its audit row atomically."""
+        connection = self.db.connect()
+        cursor = connection.cursor()
+        try:
+            result = callback(connection, cursor)
+            connection.commit()
+            return result
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            cursor.close()
+            connection.close()
 
 
 class StudentRepository(BaseRepository):
@@ -305,8 +323,11 @@ class EnrollmentRepository(BaseRepository):
 
     def get(self, enrollment_id: int) -> dict[str, Any] | None:
         return self.fetch_one(
-            """SELECT e.enrollment_id,e.student_id,e.course_id,c.teacher_id
+            """SELECT e.enrollment_id,e.student_id,e.course_id,c.teacher_id,
+                      CONCAT(s.first_name,' ',s.last_name) AS student_name,
+                      c.course_code
                FROM enrollments e JOIN courses c ON c.course_id=e.course_id
+               JOIN students s ON s.student_id=e.student_id
                WHERE e.enrollment_id=%s""",
             (enrollment_id,),
         )
@@ -338,22 +359,6 @@ class GradeRepository(BaseRepository):
                ON DUPLICATE KEY UPDATE grade_value=VALUES(grade_value),graded_date=VALUES(graded_date)""",
             (enrollment_id, value, graded_date),
         )
-
-    def run_in_transaction(self, callback) -> int:
-        """Run callback(connection, cursor) inside one transaction. Lets the
-        service write the grade and its audit row atomically."""
-        connection = self.db.connect()
-        cursor = connection.cursor()
-        try:
-            result = callback(connection, cursor)
-            connection.commit()
-            return result
-        except Exception:
-            connection.rollback()
-            raise
-        finally:
-            cursor.close()
-            connection.close()
 
 
 class DashboardRepository(BaseRepository):
@@ -448,21 +453,6 @@ class UserRepository(BaseRepository):
     def set_active(self, user_id: int, is_active: bool) -> int:
         return self.execute("UPDATE users SET is_active=%s WHERE id=%s", (is_active, user_id))
 
-    def run_in_transaction(self, callback) -> int:
-        """Run callback(connection, cursor) inside one transaction."""
-        connection = self.db.connect()
-        cursor = connection.cursor()
-        try:
-            result = callback(connection, cursor)
-            connection.commit()
-            return result
-        except Exception:
-            connection.rollback()
-            raise
-        finally:
-            cursor.close()
-            connection.close()
-
 
 class AuditLogRepository(BaseRepository):
     """Append-only access to audit_logs. No update/delete by design."""
@@ -477,22 +467,26 @@ class AuditLogRepository(BaseRepository):
         entity_type: str,
         entity_id: int | None,
         details: dict[str, Any] | None = None,
+        status: str = "SUCCESS",
     ) -> None:
         """Write one audit row on the GIVEN connection so it commits or rolls
-        back atomically with the operation it describes."""
+        back atomically with the operation it describes. status distinguishes
+        successful changes (SUCCESS) from failures (FAILED, e.g. a database
+        error) and rule rejections (REJECTED, e.g. permission denied)."""
         import json
 
         with connection.cursor() as cursor:
             cursor.execute(
                 """INSERT INTO audit_logs
-                   (user_id, username, action, entity_type, entity_id, details)
-                   VALUES (%s,%s,%s,%s,%s,%s)""",
+                   (user_id, username, action, entity_type, entity_id, status, details)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s)""",
                 (
                     user_id,
                     username,
                     action,
                     entity_type,
                     entity_id,
+                    status,
                     json.dumps(details, default=str) if details else None,
                 ),
             )
@@ -503,6 +497,7 @@ class AuditLogRepository(BaseRepository):
         action: str = "",
         entity_type: str = "",
         username: str = "",
+        status: str = "",
         limit: int = 50,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
@@ -517,6 +512,9 @@ class AuditLogRepository(BaseRepository):
         if username.strip():
             clauses.append("username LIKE %s")
             params.append(f"%{username.strip()}%")
+        if status.strip():
+            clauses.append("status = %s")
+            params.append(status.strip().upper())
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         params.extend([limit, offset])
         return self.fetch_all(
@@ -524,7 +522,7 @@ class AuditLogRepository(BaseRepository):
             tuple(params),
         )
 
-    def count(self, *, action: str = "", entity_type: str = "", username: str = "") -> int:
+    def count(self, *, action: str = "", entity_type: str = "", username: str = "", status: str = "") -> int:
         clauses: list[str] = []
         params: list[Any] = []
         if action.strip():
@@ -536,6 +534,9 @@ class AuditLogRepository(BaseRepository):
         if username.strip():
             clauses.append("username LIKE %s")
             params.append(f"%{username.strip()}%")
+        if status.strip():
+            clauses.append("status = %s")
+            params.append(status.strip().upper())
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         row = self.fetch_one("SELECT COUNT(*) AS total FROM audit_logs" + where, tuple(params))
         return int(row["total"]) if row else 0

@@ -331,6 +331,116 @@ class TeachersTab(QWidget):
         except Exception as e: show_error(self,e)
 
 
+ACTION_LABELS = {
+    "user.login": "Signed in",
+    "user.create": "Created user",
+    "user.activate": "Activated user",
+    "user.deactivate": "Deactivated user",
+    "student.create": "Added student",
+    "student.update": "Updated student",
+    "student.delete": "Removed student",
+    "student.import": "Imported students (CSV)",
+    "teacher.create": "Added teacher",
+    "teacher.update": "Updated teacher",
+    "teacher.delete": "Removed teacher",
+    "course.create": "Added course",
+    "course.update": "Updated course",
+    "course.delete": "Removed course",
+    "enrollment.create": "Enrolled student",
+    "enrollment.delete": "Removed enrollment",
+    "grade.update": "Updated grade",
+}
+
+
+def action_label(action: str) -> str:
+    return ACTION_LABELS.get(action, action)
+
+
+class AuditDetailDialog(QDialog):
+    """Read-only popup showing one audit event in full."""
+    def __init__(self, parent, row: dict):
+        super().__init__(parent)
+        self.setWindowTitle(f"Audit — {action_label(row['action'])}")
+        self.setMinimumSize(460, 320)
+        layout = QVBoxLayout(self)
+        failed = row.get("status", "SUCCESS") != "SUCCESS"
+        info = QLabel(
+            f"<b>{action_label(row['action'])}</b><br>"
+            f"When: {str(row['created_at']).replace('T', ' ')[:19]}<br>"
+            f"User: {row['username']}<br>"
+            f"Entity: {row['entity_type']}"
+            + (f" #{row['entity_id']}" if row.get("entity_id") is not None else "")
+            + f"<br>Status: <b>{row.get('status', 'SUCCESS')}</b>"
+        )
+        info.setWordWrap(True)
+        layout.addWidget(info)
+        if failed:
+            reason = ""
+            try:
+                import json as _json
+                raw = row.get("details")
+                parsed = _json.loads(raw) if isinstance(raw, str) else (raw or {})
+                reason = parsed.get("reason", "")
+            except Exception:
+                reason = ""
+            if reason:
+                warn = QLabel(f"Reason: {reason}")
+                warn.setWordWrap(True)
+                warn.setStyleSheet("color: #b42318;")
+                layout.addWidget(warn)
+        details_text = QLabel()
+        try:
+            import json as _json
+            raw = row.get("details")
+            parsed = _json.loads(raw) if isinstance(raw, str) else (raw or {})
+            if isinstance(parsed, dict):
+                lines = [f"{k.replace('_', ' ')}: {v}" for k, v in parsed.items() if not (failed and k == "reason")]
+                details_text.setText("\n".join(lines) or "No extra details.")
+            else:
+                details_text.setText(str(parsed))
+        except Exception:
+            details_text.setText("No extra details.")
+        details_text.setWordWrap(True)
+        layout.addWidget(details_text)
+        close = QPushButton("Close")
+        close.clicked.connect(self.accept)
+        layout.addWidget(close)
+
+
+class AuditLogTab(QWidget):
+    """Admin view of the audit trail: every recorded change, filterable."""
+    def __init__(self, services: ServiceBundle):
+        super().__init__(); self.services = services
+        self.search = QLineEdit(); self.search.setPlaceholderText("Filter by action, user, or entity…"); self.search.returnPressed.connect(self.load_data)
+        search_btn = QPushButton("Apply"); refresh = QPushButton("Refresh")
+        search_btn.clicked.connect(self.load_data); refresh.clicked.connect(self.load_data)
+        row = QHBoxLayout(); row.addWidget(self.search); row.addWidget(search_btn); row.addWidget(refresh); row.addStretch()
+        self.table = QTableWidget(); self.table.setColumnCount(6)
+        self.table.setHorizontalHeaderLabels(["When", "User", "Action", "Entity", "Status", ""])
+        configure_table(self.table, (0, 2))
+        lay = QVBoxLayout(self); lay.addLayout(row); lay.addWidget(self.table); self.load_data()
+    def load_data(self):
+        try: result = self.services.audit_logs.list(page=1, page_size=100)
+        except Exception as e: show_error(self, e); return
+        rows = result.get("items", []) if isinstance(result, dict) else result
+        term = self.search.text().strip().lower()
+        if term:
+            rows = [r for r in rows if term in str(r.get("action", "")).lower()
+                    or term in str(r.get("username", "")).lower()
+                    or term in str(r.get("entity_type", "")).lower()]
+        self.table.setRowCount(0)
+        for r, row in enumerate(rows):
+            self.table.insertRow(r)
+            entity = row["entity_type"] + (f" #{row['entity_id']}" if row.get("entity_id") is not None else "")
+            status = row.get("status", "SUCCESS")
+            vals = [str(row["created_at"]).replace("T", " ")[:19], row["username"], action_label(row["action"]), entity, status]
+            for c, v in enumerate(vals): self.table.setItem(r, c, QTableWidgetItem(v))
+            view_btn = QPushButton("View")
+            view_btn.setToolTip("View action details")
+            view_btn.clicked.connect(lambda _, ev=row: AuditDetailDialog(self, ev).exec())
+            self.table.setCellWidget(r, 5, view_btn)
+
+
 class UsersTab(QWidget):
     def __init__(self,services:ServiceBundle):
         super().__init__(); self.services=services

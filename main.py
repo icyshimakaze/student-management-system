@@ -26,7 +26,7 @@ from config import DatabaseSettings
 from db import DatabaseConnection
 from dialogs import AboutDialog
 from services import AuthService, ServiceBundle, Session, ValidationError
-from tabs import CoursesTab, DashboardTab, StudentsTab, TeachersTab, UsersTab
+from tabs import AuditLogTab, CoursesTab, DashboardTab, StudentsTab, TeachersTab, UsersTab
 
 LOGGER = logging.getLogger(__name__)
 
@@ -55,7 +55,7 @@ class MainWindow(QMainWindow):
         if session.is_admin: self.tabs.addTab(StudentsTab(self.services),"Students")
         self.tabs.addTab(CoursesTab(self.services),"Courses")
         if session.is_admin:
-            self.tabs.addTab(TeachersTab(self.services),"Teachers"); self.tabs.addTab(UsersTab(self.services),"Users")
+            self.tabs.addTab(TeachersTab(self.services),"Teachers"); self.tabs.addTab(UsersTab(self.services),"Users"); self.tabs.addTab(AuditLogTab(self.services),"Audit Log")
         self.tabs.currentChanged.connect(self._refresh_tab); self.setCentralWidget(self.tabs); self.statusBar().showMessage(f"Signed in as {session.username} · {session.role}")
         self.showMaximized()
     def _refresh_tab(self,index):

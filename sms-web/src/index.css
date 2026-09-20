@@ -431,6 +431,26 @@ input:focus, select:focus {
 .badge.ok { background: var(--ok-soft); color: var(--ok); }
 .badge.off { background: #f2f4f7; color: var(--muted); }
 .badge.band { background: var(--accent-soft); color: var(--accent-dark); }
+.badge.danger { background: #fdecec; color: #b42318; }
+.badge.warn { background: #fef4e6; color: #b54708; }
+
+/* Audit log page */
+.row-flagged td { background: #fffafa; }
+.btn.icon-only { padding: 6px 9px; }
+.detail-grid {
+  display: grid; grid-template-columns: 110px 1fr; gap: 8px 14px;
+  margin: 0 0 14px; font-size: 14px;
+}
+.detail-grid dt { color: var(--muted); font-weight: 500; }
+.detail-grid dd { margin: 0; }
+.detail-heading { font-size: 13px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); margin: 0 0 8px; }
+.detail-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.detail-table th, .detail-table td {
+  text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border);
+}
+.detail-table th { color: var(--muted); font-weight: 500; width: 34%; vertical-align: top; }
+.detail-table td { word-break: break-word; }
+.reason { color: #b42318; }
 
 /* ============ modal ============ */
 

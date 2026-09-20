@@ -133,6 +133,61 @@ class BaseService:
             details=details,
         )
 
+    def audited(self, action: str, entity_type: str, operation: str, func, *args, details=None, entity_id: int | None = None, **kwargs):
+        """Run a mutating operation and record its audit trail.
+
+        Success  -> SUCCESS row (with `details(entity_id)` when a callable is
+                    passed, so the new record's id can be included).
+        Failure  -> REJECTED row when the caller made a rule mistake
+                    (ValidationError / PermissionDenied / NotFoundError),
+                    FAILED row for anything else (database failure). The
+                    rejection row is written best-effort on its own
+                    transaction: if the database is down, there is nowhere
+                    to write it anyway.
+        """
+        try:
+            result = self.ensure_error(operation, func, *args, **kwargs)
+        except (ValidationError, PermissionDenied, LookupError) as error:
+            self._audit_standalone(action, entity_type, None, str(error), "REJECTED")
+            raise
+        except Exception as error:  # database failure -> FAILED, best-effort
+            self._audit_standalone(action, entity_type, None, f"Database error: {error}", "FAILED")
+            raise
+        if entity_id is None:
+            entity_id = result if isinstance(result, int) and result > 0 else None
+        extra = details(entity_id) if callable(details) else details
+        if self.db is not None:
+            def _write(connection, cursor):
+                self._audit_with(connection, action, entity_type, entity_id, extra)
+                return result
+            return self.ensure_error(f"{operation} audit", self._runner_for(entity_type), _write)
+        return result
+
+    def _runner_for(self, entity_type: str):
+        """Pick a repository transaction runner for the audit write."""
+        return self.students.run_in_transaction
+
+    def _audit_standalone(self, action: str, entity_type: str, entity_id: int | None, detail: str, status: str) -> None:
+        """Best-effort audit write outside the operation's transaction."""
+        if self.db is None:
+            return
+        try:
+            def _write(connection, cursor):
+                self.audit.record(
+                    connection,
+                    user_id=self.session.user_id,
+                    username=self.session.username,
+                    action=action,
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                    details={"reason": detail[:500]},
+                    status=status,
+                )
+                return 0
+            self.students.run_in_transaction(_write)
+        except Exception:
+            LOGGER.exception("Failed to write %s audit record", status)
+
 
 class AuthService:
     def __init__(self, db, user_repo: UserRepository | None = None):
@@ -206,18 +261,28 @@ class StudentService(BaseService):
     def create(self, data: dict[str, Any]) -> int:
         self.require_admin()
         clean = self._validate_student(data)
-        return self.ensure_error("student creation", self.students.create, clean)
+        return self.audited("student.create", "student", "student creation", self.students.create, clean,
+                            details=lambda new_id: {"student_code": clean["student_code"],
+                                                    "name": f"{clean['first_name']} {clean['last_name']}", "student_id": new_id})
 
     def update(self, student_id: int, data: dict[str, Any]) -> int:
         self.require_admin()
-        self.get(student_id)
+        existing = self.get(student_id)
         clean = self._validate_student(data)
-        return self.ensure_error("student update", self.students.update, student_id, clean)
+        return self.audited("student.update", "student", "student update", self.students.update, student_id, clean,
+                            entity_id=student_id,
+                            details={"student_code": clean["student_code"],
+                                     "name": f"{clean['first_name']} {clean['last_name']}",
+                                     "previous": {k: existing[k] for k in ("student_code", "first_name", "last_name", "email")}})
 
     def delete(self, student_id: int) -> int:
         self.require_admin()
-        self.get(student_id)
-        return self.ensure_error("student deletion", self.students.delete, student_id)
+        existing = self.get(student_id)
+        removed = self.audited("student.delete", "student", "student deletion", self.students.delete, student_id,
+                               entity_id=student_id,
+                               details={"student_code": existing["student_code"],
+                                        "name": f"{existing['first_name']} {existing['last_name']}"})
+        return student_id
 
     def profile(self, student_id: int) -> dict[str, Any]:
         self.require_admin()
@@ -290,7 +355,8 @@ class TeacherService(BaseService):
             "email": email(data.get("email")),
             "hire_date": required(data.get("hire_date"), "Hire date"),
         }
-        return self.ensure_error("teacher creation", self.teachers.create, clean)
+        return self.audited("teacher.create", "teacher", "teacher creation", self.teachers.create, clean,
+                            details=lambda new_id: {"name": f"{clean['first_name']} {clean['last_name']}", "teacher_id": new_id})
 
     def update(self, teacher_id: int, data: dict[str, Any]) -> int:
         self.require_admin()
@@ -301,12 +367,16 @@ class TeacherService(BaseService):
             "email": email(data.get("email")),
             "hire_date": required(data.get("hire_date"), "Hire date"),
         }
-        return self.ensure_error("teacher update", self.teachers.update, teacher_id, clean)
+        return self.audited("teacher.update", "teacher", "teacher update", self.teachers.update, teacher_id, clean,
+                            entity_id=teacher_id,
+                            details={"name": f"{clean['first_name']} {clean['last_name']}"})
 
     def delete(self, teacher_id: int) -> int:
         self.require_admin()
-        self.get(teacher_id)
-        return self.ensure_error("teacher deletion", self.teachers.delete, teacher_id)
+        existing = self.get(teacher_id)
+        return self.audited("teacher.delete", "teacher", "teacher deletion", self.teachers.delete, teacher_id,
+                            entity_id=teacher_id,
+                            details={"name": f"{existing['first_name']} {existing['last_name']}"})
 
 
 class CourseService(BaseService):
@@ -345,7 +415,8 @@ class CourseService(BaseService):
         }
         if clean["teacher_id"] is not None and not self.teachers.exists(int(clean["teacher_id"])):
             raise ValidationError("Selected teacher does not exist.")
-        return self.ensure_error("course creation", self.courses.create, clean)
+        return self.audited("course.create", "course", "course creation", self.courses.create, clean,
+                            details=lambda new_id: {"course_code": clean["course_code"], "course_id": new_id})
 
     def update(self, course_id: int, data: dict[str, Any]) -> int:
         self.require_admin()
@@ -358,12 +429,16 @@ class CourseService(BaseService):
         }
         if clean["teacher_id"] is not None and not self.teachers.exists(int(clean["teacher_id"])):
             raise ValidationError("Selected teacher does not exist.")
-        return self.ensure_error("course update", self.courses.update, course_id, clean)
+        return self.audited("course.update", "course", "course update", self.courses.update, course_id, clean,
+                            entity_id=course_id,
+                            details={"course_code": clean["course_code"]})
 
     def delete(self, course_id: int) -> int:
         self.require_admin()
-        self.get(course_id)
-        return self.ensure_error("course deletion", self.courses.delete, course_id)
+        existing = self.get(course_id)
+        return self.audited("course.delete", "course", "course deletion", self.courses.delete, course_id,
+                            entity_id=course_id,
+                            details={"course_code": existing["course_code"], "course_name": existing["course_name"]})
 
     def analytics(self, course_id: int) -> dict[str, Any]:
         row = self.get(course_id)
@@ -390,19 +465,29 @@ class EnrollmentService(BaseService):
 
     def create(self, student_id: int, course_id: int, enrollment_date: str) -> int:
         self.require_admin()
-        if not self.students.get(student_id):
-            raise ValidationError("Student does not exist.")
-        if not self.courses.get(course_id):
-            raise ValidationError("Course does not exist.")
-        if self.enrollments.exists(student_id, course_id):
-            raise ValidationError("This student is already enrolled in the selected course.")
-        return self.ensure_error("enrollment creation", self.enrollments.create, student_id, course_id, required(enrollment_date, "Enrollment date"))
+
+        def _operation() -> int:
+            # Checks live inside the audited operation so a rule rejection
+            # (unknown student/course, duplicate enrollment) is itself audited.
+            if not self.students.get(student_id):
+                raise ValidationError("Student does not exist.")
+            if not self.courses.get(course_id):
+                raise ValidationError("Course does not exist.")
+            if self.enrollments.exists(student_id, course_id):
+                raise ValidationError("This student is already enrolled in the selected course.")
+            return self.enrollments.create(student_id, course_id, required(enrollment_date, "Enrollment date"))
+
+        return self.audited("enrollment.create", "enrollment", "enrollment creation", _operation,
+                            details=lambda new_id: {"student_id": student_id, "course_id": course_id, "enrollment_id": new_id})
 
     def delete(self, enrollment_id: int) -> int:
         self.require_admin()
-        if not self.enrollments.get(enrollment_id):
+        enrollment = self.enrollments.get(enrollment_id)
+        if not enrollment:
             raise NotFoundError("Enrollment not found.")
-        return self.ensure_error("enrollment deletion", self.enrollments.delete, enrollment_id)
+        return self.audited("enrollment.delete", "enrollment", "enrollment deletion", self.enrollments.delete, enrollment_id,
+                            entity_id=enrollment_id,
+                            details={"student": enrollment.get("student_name"), "course": enrollment.get("course_code")})
 
 
 class GradeService(BaseService):
@@ -531,17 +616,17 @@ class UserService(BaseService):
 class AuditLogService(BaseService):
     """Admin-only read access to the audit trail."""
 
-    def list(self, *, action: str = "", entity_type: str = "", username: str = "", page: int = 1, page_size: int = 20) -> dict[str, Any]:
+    def list(self, *, action: str = "", entity_type: str = "", username: str = "", status: str = "", page: int = 1, page_size: int = 20) -> dict[str, Any]:
         self.require_admin()
         page, page_size, offset = self._page_args(page, page_size)
         items = self.ensure_error(
             "audit listing", self.audit.list,
-            action=action, entity_type=entity_type, username=username,
+            action=action, entity_type=entity_type, username=username, status=status,
             limit=page_size, offset=offset,
         )
         total = self.ensure_error(
             "audit count", self.audit.count,
-            action=action, entity_type=entity_type, username=username,
+            action=action, entity_type=entity_type, username=username, status=status,
         )
         return self._page_result(items, page, page_size, total)
 

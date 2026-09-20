@@ -1,6 +1,3 @@
--- Auto-generated from database/schema.sql — do not edit directly.
--- Regenerate: python scripts/sync_docker_init.py (or copy manually).
-
 -- =====================================================================
 -- student_management: normalized relational schema
 -- =====================================================================
@@ -12,6 +9,8 @@
 --                                     grades
 -- =====================================================================
 
+CREATE DATABASE IF NOT EXISTS student_management;
+USE student_management;
 
 CREATE TABLE IF NOT EXISTS teachers (
     teacher_id   INT AUTO_INCREMENT PRIMARY KEY,
@@ -93,9 +92,11 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     action      VARCHAR(50) NOT NULL,          -- e.g. student.create, grade.update, user.login
     entity_type VARCHAR(30) NOT NULL,          -- student / course / enrollment / grade / user
     entity_id   INT NULL,
+    status      VARCHAR(10) NOT NULL DEFAULT 'SUCCESS',  -- SUCCESS / FAILED / REJECTED
     details     JSON NULL,
     created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_audit_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+    CONSTRAINT chk_audit_status CHECK (status IN ('SUCCESS','FAILED','REJECTED')),
     KEY idx_audit_user (user_id),
     KEY idx_audit_action (action),
     KEY idx_audit_entity (entity_type, entity_id),
