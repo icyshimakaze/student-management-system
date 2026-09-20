@@ -135,13 +135,22 @@ python -c "import secrets; print(f'API_JWT_SECRET={secrets.token_urlsafe(48)}')"
 
 Never commit the real `.env` — it is git-ignored.
 
-### 4. First user
+### 4. Login accounts
+
+Seeding the demo data also creates two **demo-only** accounts so the app is usable immediately:
+
+| Username | Password | Role |
+|---|---|---|
+| `admin` | `admin123` | ADMIN |
+| `demo_teacher` | `teach123` | TEACHER |
+
+These exist for the demo dataset only — change or delete them before any real use. To create your own accounts instead (or in addition), run:
 
 ```powershell
 python scripts/create_user.py
 ```
 
-Prompts for username/password/role interactively; the password is never stored in source.
+It prompts for username/password/role interactively; the password is never stored in source.
 
 ## Running
 

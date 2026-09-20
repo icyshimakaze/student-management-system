@@ -8,4 +8,9 @@ INSERT INTO students (student_code,first_name,last_name,email,enrollment_date) V
 ('STU-0001','Maya','Chen','maya.chen@student.edu','2023-09-01'),('STU-0002','Liam','Okafor','liam.okafor@student.edu','2023-09-01'),('STU-0003','Sofia','Rossi','sofia.rossi@student.edu','2024-01-15'),('STU-0004','Zoe','Fontaine','zoe.fontaine@student.edu','2025-01-15');
 INSERT INTO enrollments (student_id,course_id,enrollment_date) VALUES (1,1,'2023-09-05'),(1,3,'2023-09-05'),(2,1,'2023-09-05'),(2,2,'2023-09-05'),(3,2,'2024-01-20');
 INSERT INTO grades (enrollment_id,grade_value,graded_date) VALUES (1,88.5,'2023-12-15'),(2,76,'2023-12-15'),(3,91,'2023-12-15'),(4,84.5,'2023-12-15');
--- Create users safely after seeding with: python scripts/create_user.py
+-- Demo login accounts (development/demo only — change or delete them before any real use).
+-- Passwords: admin user 'admin' -> admin123, teacher user 'demo_teacher' -> teach123.
+-- Passwords are bcrypt-hashed here; create additional users with: python scripts/create_user.py
+INSERT INTO users (username, password_hash, role, is_active) VALUES
+('admin', '$2b$12$jqQclPW42..uLVDcTq/ieuAqKfXsP8uwXzFZEhszemzT6bDH2p7sC', 'ADMIN', TRUE),
+('demo_teacher', '$2b$12$V6XkUoScsw2v8wBDThXeEubVUI2uzwWi2Q..5T6fwLw.gY2i6pOZ6', 'TEACHER', TRUE);

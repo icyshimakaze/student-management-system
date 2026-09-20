@@ -2,6 +2,8 @@
 
 Schema lives in `database/schema.sql`; demo data in `seed_data.sql`; reporting examples in `queries.sql`.
 
+The seed data includes two demo login accounts (`admin`/`admin123` as ADMIN, `demo_teacher`/`teach123` as TEACHER), stored as bcrypt hashes and intended for the demo dataset only. Create real accounts with `python scripts/create_user.py`.
+
 ## Tables
 
 | Table | Purpose | Key constraints |
