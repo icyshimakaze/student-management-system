@@ -106,8 +106,11 @@ export function usePagedList(resource, search, page, pageSize = 20) {
   const [error, setError] = useState('')
   const load = useCallback(() => {
     const params = new URLSearchParams({ search, page: String(page), page_size: String(pageSize) })
+    // `resource` may already carry its own query (e.g. "audit-logs?action=...")
+    // — join with & instead of adding a second ? in that case.
+    const sep = resource.includes('?') ? '&' : '?'
     api
-      .get(`/${resource}?${params}`)
+      .get(`/${resource}${sep}${params}`)
       .then(setData)
       .catch((err) => setError(err.message))
   }, [resource, search, page, pageSize])

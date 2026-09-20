@@ -21,13 +21,21 @@ export default function AuditLogsPage() {
   const [action, setAction] = useState('')
   const [entityType, setEntityType] = useState('')
   const [username, setUsername] = useState('')
+  const [submitted, setSubmitted] = useState({ action: '', entity_type: '', username: '' })
   const [page, setPage] = useState(1)
-  const params = new URLSearchParams({ action, entity_type: entityType, username })
-  const { rows, meta, error, reload } = usePagedList(`audit-logs?${params}`, '', page)
+  // Build the query inside the resource string, but only from the *submitted*
+  // filter values so typing never fires requests mid-edit.
+  const filters = new URLSearchParams({
+    action: submitted.action,
+    entity_type: submitted.entity_type,
+    username: submitted.username,
+  }).toString()
+  const { rows, meta, error, reload } = usePagedList(`audit-logs?${filters}`, '', page)
 
   function applyFilter(event) {
     event.preventDefault()
     setPage(1)
+    setSubmitted({ action, entity_type: entityType, username })
     reload()
   }
 
