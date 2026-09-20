@@ -1,0 +1,26 @@
+# Local development database only. Passwords come from the environment
+# (or a local .env file); the defaults below are for development setups
+# and are intentionally NOT production credentials.
+services:
+  db:
+    image: mysql:8.0
+    container_name: sms-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-sms_dev_password}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-student_management}
+    ports:
+      - "${DB_PORT:-3307}:3306"
+    volumes:
+      - sms_mysql_data:/var/lib/mysql
+      # MySQL runs any *.sql in this folder on first startup only.
+      # The schema file's CREATE DATABASE/USE lines are stripped because
+      # MYSQL_DATABASE already selects the right database.
+      - ./docker-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  sms_mysql_data:

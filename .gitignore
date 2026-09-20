@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+build/
+# Python EXE build output (PyInstaller)
+/dist/
+/release/
+# Inno Setup installer output (~50 MB setup exe — distribute outside Git)
+output/
+*.exe
+*.spec.bak
+
+# Node / frontend
+node_modules/
+sms-web/dist/
+sms-web/*.local
+.ruff_cache/
+.pytest_cache/
+
+# IDE settings
+.idea/
+.vscode/
+
+# Local configuration and secrets
+.env
+*.local
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Local databases / dumps
+*.sql.bak
+*.dump
+*.sqlite

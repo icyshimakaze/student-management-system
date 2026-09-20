@@ -1,0 +1,23 @@
+# Lightweight linting: correctness + imports + real bugs.
+# BLE001 (broad except) is allowed deliberately: services and the API
+# convert unexpected errors into user-facing messages and log the details.
+# B008 is how FastAPI dependency injection works (Depends() in defaults).
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+exclude = ["sms-web", "dist", "build", "docker-init", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+# E701/E702/E703: the existing codebase deliberately uses compact one-line
+# statements in places; enforcing a reformat is out of scope for now.
+# E501: dialogs.py builds long Qt widget chains; readability there is fine.
+ignore = ["BLE001", "B008", "RUF059", "E701", "E702", "E703", "E501", "UP046", "UP047"]
+
+[tool.ruff.lint.per-file-ignores]
+# Pytest fixtures are intentionally re-imported per test module for clarity;
+# blind raises are used to simulate unexpected failures in one test.
+"tests/*" = ["F811", "B017", "E402", "F841", "E501", "SIM117"]
+# FastAPI style: re-raise domain errors as HTTPException without chaining.
+"api.py" = ["B904"]
+"scripts/*" = ["B904"]
