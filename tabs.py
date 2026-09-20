@@ -165,6 +165,7 @@ class StudentsTab(QWidget):
     def load_data(self):
         try: rows=self.services.students.list(self.search.text())
         except Exception as e: show_error(self,e); return
+        rows=rows["items"] if isinstance(rows,dict) else rows  # paginated envelope -> rows
         self.table.setRowCount(0)
         for r,row in enumerate(rows):
             self.table.insertRow(r); vals=[str(row["student_id"]),row["student_code"],f"{row['first_name']} {row['last_name']}",row["email"],row["courses"] or "—","—" if row["avg_grade"] is None else f"{float(row['avg_grade']):.2f}"]
@@ -254,6 +255,7 @@ class CoursesTab(QWidget):
     def load_data(self):
         try: rows=self.services.courses.list(self.search.text())
         except Exception as e: show_error(self,e); return
+        rows=rows["items"] if isinstance(rows,dict) else rows  # paginated envelope -> rows
         self.table.setRowCount(0)
         for r,row in enumerate(rows):
             self.table.insertRow(r); vals=[str(row["course_id"]),row["course_code"],row["course_name"],str(row["credits"]),row["teacher"] or "— Unassigned —",str(row["enrolled"]),"—" if row["avg_grade"] is None else f"{float(row['avg_grade']):.2f}"]
@@ -303,6 +305,7 @@ class TeachersTab(QWidget):
     def load_data(self):
         try: rows=self.services.teachers.list(self.search.text())
         except Exception as e: show_error(self,e); return
+        rows=rows["items"] if isinstance(rows,dict) else rows  # paginated envelope -> rows
         self.table.setRowCount(0)
         for r,row in enumerate(rows):
             self.table.insertRow(r); vals=[str(row["teacher_id"]),row["first_name"],row["last_name"],row["email"],str(row["hire_date"]),str(row["courses_taught"])];
