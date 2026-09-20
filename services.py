@@ -39,6 +39,22 @@ class NotFoundError(LookupError):
     """Raised when a requested record no longer exists."""
 
 
+def _field_changes(existing: dict[str, Any], clean: dict[str, Any], fields: tuple[str, ...]) -> dict[str, str]:
+    """Build a {field: "old -> new"} diff for fields whose value actually
+    changed, so the audit popup can show old and new side by side."""
+    changes: dict[str, str] = {}
+    for field in fields:
+        old = existing.get(field)
+        new = clean.get(field)
+        if old is None and new is None:
+            continue
+        old_str = str(old) if old is not None else "—"
+        new_str = str(new) if new is not None else "—"
+        if old_str != new_str:
+            changes[field] = f"{old_str} -> {new_str}"
+    return changes
+
+
 def _friendly_db_error(error: mysql.connector.Error) -> ValidationError | None:
     errno = getattr(error, "errno", None)
     if errno == 1062:
@@ -269,11 +285,14 @@ class StudentService(BaseService):
         self.require_admin()
         existing = self.get(student_id)
         clean = self._validate_student(data)
+        details = {"student_code": clean["student_code"],
+                   "name": f"{clean['first_name']} {clean['last_name']}"}
+        changes = _field_changes(existing, clean, ("student_code", "first_name", "last_name", "email", "enrollment_date"))
+        if changes:
+            details["changes"] = changes
         return self.audited("student.update", "student", "student update", self.students.update, student_id, clean,
                             entity_id=student_id,
-                            details={"student_code": clean["student_code"],
-                                     "name": f"{clean['first_name']} {clean['last_name']}",
-                                     "previous": {k: existing[k] for k in ("student_code", "first_name", "last_name", "email")}})
+                            details=details)
 
     def delete(self, student_id: int) -> int:
         self.require_admin()
@@ -360,16 +379,20 @@ class TeacherService(BaseService):
 
     def update(self, teacher_id: int, data: dict[str, Any]) -> int:
         self.require_admin()
-        self.get(teacher_id)
+        existing = self.get(teacher_id)
         clean = {
             "first_name": name(data.get("first_name"), "First name"),
             "last_name": name(data.get("last_name"), "Last name"),
             "email": email(data.get("email")),
             "hire_date": required(data.get("hire_date"), "Hire date"),
         }
+        details = {"name": f"{clean['first_name']} {clean['last_name']}"}
+        changes = _field_changes(existing, clean, ("first_name", "last_name", "email", "hire_date"))
+        if changes:
+            details["changes"] = changes
         return self.audited("teacher.update", "teacher", "teacher update", self.teachers.update, teacher_id, clean,
                             entity_id=teacher_id,
-                            details={"name": f"{clean['first_name']} {clean['last_name']}"})
+                            details=details)
 
     def delete(self, teacher_id: int) -> int:
         self.require_admin()
@@ -420,7 +443,7 @@ class CourseService(BaseService):
 
     def update(self, course_id: int, data: dict[str, Any]) -> int:
         self.require_admin()
-        self.get(course_id)
+        existing = self.get(course_id)
         clean = {
             "course_code": identifier(data.get("course_code"), "Course code"),
             "course_name": required(data.get("course_name"), "Course name"),
@@ -429,9 +452,13 @@ class CourseService(BaseService):
         }
         if clean["teacher_id"] is not None and not self.teachers.exists(int(clean["teacher_id"])):
             raise ValidationError("Selected teacher does not exist.")
+        details = {"course_code": clean["course_code"]}
+        changes = _field_changes(existing, clean, ("course_code", "course_name", "credits", "teacher_id"))
+        if changes:
+            details["changes"] = changes
         return self.audited("course.update", "course", "course update", self.courses.update, course_id, clean,
                             entity_id=course_id,
-                            details={"course_code": clean["course_code"]})
+                            details=details)
 
     def delete(self, course_id: int) -> int:
         self.require_admin()

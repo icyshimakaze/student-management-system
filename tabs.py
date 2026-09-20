@@ -398,7 +398,11 @@ class AuditDetailDialog(QDialog):
                 for key, value in parsed.items():
                     if failed and key == "reason":
                         continue  # already shown in red above
-                    if isinstance(value, dict):  # nested dicts (e.g. previous values) become one line per field
+                    if key == "changes" and isinstance(value, dict):
+                        # field diffs render as "changed last name: old -> new"
+                        for field, diff in value.items():
+                            lines.append(f"changed {field.replace('_', ' ')}: {diff}")
+                    elif isinstance(value, dict):  # nested dicts (e.g. previous values) become one line per field
                         for inner_key, inner_value in value.items():
                             lines.append(f"{key} {inner_key.replace('_', ' ')}: {inner_value}")
                     else:

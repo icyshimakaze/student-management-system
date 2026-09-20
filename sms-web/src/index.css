@@ -451,6 +451,7 @@ input:focus, select:focus {
 .detail-table th { color: var(--muted); font-weight: 500; width: 34%; vertical-align: top; }
 .detail-table td { word-break: break-word; }
 .reason { color: #b42318; }
+.change-cell { color: var(--accent-dark); font-weight: 500; }
 
 /* ============ modal ============ */
 
